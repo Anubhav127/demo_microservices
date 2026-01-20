@@ -4,3 +4,4 @@
  */
 
 export { User, UserRole, UserAttributes, UserCreationAttributes } from './User';
+export { RefreshToken, RefreshTokenAttributes, RefreshTokenCreationAttributes } from './RefreshToken';

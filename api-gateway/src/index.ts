@@ -1,38 +1,24 @@
-import express from 'express';
-import cors from 'cors';
 import dotenv from 'dotenv';
-import { authRouter, projectsRouter, modelsRouter, evaluationsRouter } from './routes';
 
+// Load environment variables BEFORE importing config
 dotenv.config();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+// Import config to trigger validation (fail-fast)
+import './config';
+import { startServer } from './server';
+import { logger } from './lib/logger';
 
-// Middleware
-app.use(cors(
-  {
-    origin: "*",
-    credentials: true
-  }
-));
-app.use(express.json());
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'api-gateway' });
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', { error: error.message, stack: error.stack });
+  process.exit(1);
 });
 
-// Routes - All proxied to appropriate services
-app.use('/auth', authRouter);           // -> Auth Service
-app.use('/projects', projectsRouter);   // -> Trust Service
-app.use('/models', modelsRouter);       // -> Trust Service
-app.use('/evaluations', evaluationsRouter); // -> Trust Service
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`API Gateway running on port ${PORT}`);
-  console.log('  Auth Service URL:', process.env.AUTH_SERVICE_URL || 'http://localhost:3001');
-  console.log('  Trust Service URL:', process.env.TRUST_SERVICE_URL || 'http://localhost:3002');
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled Rejection:', { reason });
+  process.exit(1);
 });
 
-export default app;
+// Start the application
+startServer();

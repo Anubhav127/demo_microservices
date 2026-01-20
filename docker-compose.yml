@@ -119,27 +119,27 @@ services:
   # ===========================================
 
   # Auth Service - Owns users table
-  auth-service:
-    build:
-      context: ./auth-service
-      dockerfile: Dockerfile
-    container_name: ai-eval-auth-service
-    depends_on:
-      auth-db:
-        condition: service_healthy
-    environment:
-      PORT: 3001
-      JWT_SECRET: dev-secret-key-change-in-production
-      JWT_EXPIRATION: 24h
-      DB_HOST: auth-db
-      DB_PORT: 5432
-      DB_NAME: auth_db
-      DB_USER: auth_user
-      DB_PASSWORD: auth_password
-    ports:
-      - "3001:3001"
-    networks:
-      - ai-eval-network
+  # auth-service:
+  #   build:
+  #     context: ./auth-service
+  #     dockerfile: Dockerfile
+  #   container_name: ai-eval-auth-service
+  #   depends_on:
+  #     auth-db:
+  #       condition: service_healthy
+  #   environment:
+  #     PORT: 3001
+  #     JWT_SECRET: dev-secret-key-change-in-production
+  #     JWT_EXPIRATION: 24h
+  #     DB_HOST: auth-db
+  #     DB_PORT: 5432
+  #     DB_NAME: auth_db
+  #     DB_USER: auth_user
+  #     DB_PASSWORD: auth_password
+  #   ports:
+  #     - "3001:3001"
+  #   networks:
+  #     - ai-eval-network
 
   # Trust Service - Owns projects, models, evaluations
   trust-service:
@@ -178,25 +178,25 @@ services:
       - ai-eval-network
 
   # API Gateway - Pure Proxy (No DB, No Kafka)
-  api-gateway:
-    build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
-    container_name: ai-eval-api-gateway
-    depends_on:
-      auth-service:
-        condition: service_started
-      trust-service:
-        condition: service_started
-    environment:
-      PORT: 3000
-      JWT_SECRET: dev-secret-key-change-in-production
-      AUTH_SERVICE_URL: http://auth-service:3001
-      TRUST_SERVICE_URL: http://trust-service:3002
-    ports:
-      - "3000:3000"
-    networks:
-      - ai-eval-network
+  # api-gateway:
+  #   build:
+  #     context: ./api-gateway
+  #     dockerfile: Dockerfile
+  #   container_name: ai-eval-api-gateway
+  #   depends_on:
+  #     auth-service:
+  #       condition: service_started
+  #     trust-service:
+  #       condition: service_started
+  #   environment:
+  #     PORT: 4000
+  #     JWT_SECRET: dev-secret-key-change-in-production
+  #     AUTH_SERVICE_URL: http://auth-service:3001
+  #     TRUST_SERVICE_URL: http://trust-service:3002
+  #   ports:
+  #     - "4000:4000"
+  #   networks:
+  #     - ai-eval-network
 
   # Mock AI Service
   mock-ai-service:

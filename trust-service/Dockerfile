@@ -1,27 +1,60 @@
-FROM node:20-alpine
+# Trust Service Dockerfile
+# Multi-stage build for API and Worker targets
+
+# ========================
+# Base stage
+# ========================
+FROM node:20-alpine AS base
 
 WORKDIR /app
 
-# Copy package files
+# Install dependencies
 COPY package*.json ./
+RUN npm ci --only=production
 
-# Install ALL dependencies (including dev for TypeScript)
-RUN npm install
+# ========================
+# Build stage
+# ========================
+FROM node:20-alpine AS build
 
-# Copy source code
-COPY . .
+WORKDIR /app
 
-# Build TypeScript
+# Install all dependencies (including dev)
+COPY package*.json ./
+RUN npm ci
+
+# Copy source and compile TypeScript
+COPY tsconfig.json ./
+COPY src ./src
 RUN npm run build
 
-# Remove dev dependencies to reduce image size
-RUN npm prune --production
+# ========================
+# API target
+# ========================
+FROM base AS api
 
-# Create data directory
-RUN mkdir -p /app/data
+# Copy compiled code
+COPY --from=build /app/dist ./dist
 
-# Expose port
+# Expose API port
 EXPOSE 3002
 
-# Start the service
-CMD ["npm", "start"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3002/health || exit 1
+
+# Start API server
+CMD ["node", "dist/api/server.js"]
+
+# ========================
+# Worker target
+# ========================
+FROM base AS worker
+
+# Copy compiled code
+COPY --from=build /app/dist ./dist
+
+# No port exposure needed for worker
+
+# Start worker
+CMD ["node", "dist/worker/index.js"]

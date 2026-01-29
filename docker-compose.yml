@@ -23,7 +23,7 @@ services:
     networks:
       - ai-eval-network
 
-  # Trust Database - owns projects, models, evaluations
+  # Trust Database - owns evaluation_jobs, evaluation_results
   trust-db:
     image: postgres:15-alpine
     container_name: ai-eval-trust-db
@@ -44,53 +44,25 @@ services:
       - ai-eval-network
 
   # ===========================================
-  # MESSAGE QUEUE (KRaft Mode - No Zookeeper)
+  # QUEUE BACKEND (Redis for BullMQ)
   # ===========================================
 
-  kafka:
-    image: apache/kafka:3.7.0
-    container_name: ai-eval-kafka
-    environment:
-      # KRaft Configuration (standard env vars without _CFG)
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_NUM_PARTITIONS: 3
+  redis:
+    image: redis:7-alpine
+    container_name: ai-eval-redis
     ports:
-      - "9092:9092"
+      - "6379:6379"
     volumes:
-      - kafka_data:/var/lib/kafka/data
+      - redis_data:/data
     healthcheck:
-      test: [ "CMD-SHELL", "nc -z localhost 9092 || exit 1" ]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
+      timeout: 5s
+      retries: 5
     networks:
       - ai-eval-network
 
-  # Kafka UI for monitoring
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: ai-eval-kafka-ui
-    depends_on:
-      - kafka
-    environment:
-      KAFKA_CLUSTERS_0_NAME: ai-eval-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      DYNAMIC_CONFIG_ENABLED: "true"
-    ports:
-      - "8080:8080"
-    networks:
-      - ai-eval-network
+  # ===========================================
   # OBJECT STORAGE (S3-Compatible)
   # ===========================================
 
@@ -141,43 +113,57 @@ services:
   #   networks:
   #     - ai-eval-network
 
-  # Trust Service - Owns projects, models, evaluations
-  trust-service:
+  # Trust Service API - Stateless, horizontally scalable
+  trust-api:
     build:
       context: ./trust-service
       dockerfile: Dockerfile
-    container_name: ai-eval-trust-service
+      target: api
+    container_name: ai-eval-trust-api
     depends_on:
       trust-db:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
-      minio:
+      redis:
         condition: service_healthy
     environment:
       PORT: 3002
-      JWT_SECRET: dev-secret-key-change-in-production
-      KAFKA_BROKER: kafka:9092
-      KAFKA_GROUP_ID: trust-service-group
       DB_HOST: trust-db
       DB_PORT: 5432
       DB_NAME: trust_db
       DB_USER: trust_user
       DB_PASSWORD: trust_password
-      # MinIO Configuration
-      MINIO_ENDPOINT: minio
-      MINIO_PORT: 9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: evaluations
-      # Mock AI Service
-      MOCK_AI_SERVICE_URL: http://mock-ai-service:8000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
       - "3002:3002"
     networks:
       - ai-eval-network
 
-  # API Gateway - Pure Proxy (No DB, No Kafka)
+  # Trust Service Worker - Concurrency-capped background jobs
+  trust-worker:
+    build:
+      context: ./trust-service
+      dockerfile: Dockerfile
+      target: worker
+    container_name: ai-eval-trust-worker
+    depends_on:
+      trust-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DB_HOST: trust-db
+      DB_PORT: 5432
+      DB_NAME: trust_db
+      DB_USER: trust_user
+      DB_PASSWORD: trust_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      WORKER_CONCURRENCY: 10
+    networks:
+      - ai-eval-network
+
+  # API Gateway - Pure Proxy (No DB, No Queue)
   # api-gateway:
   #   build:
   #     context: ./api-gateway
@@ -186,13 +172,13 @@ services:
   #   depends_on:
   #     auth-service:
   #       condition: service_started
-  #     trust-service:
+  #     trust-api:
   #       condition: service_started
   #   environment:
   #     PORT: 4000
   #     JWT_SECRET: dev-secret-key-change-in-production
   #     AUTH_SERVICE_URL: http://auth-service:3001
-  #     TRUST_SERVICE_URL: http://trust-service:3002
+  #     TRUST_SERVICE_URL: http://trust-api:3002
   #   ports:
   #     - "4000:4000"
   #   networks:
@@ -218,7 +204,7 @@ volumes:
     driver: local
   trust_db_data:
     driver: local
-  kafka_data:
+  redis_data:
     driver: local
   minio_data:
     driver: local
